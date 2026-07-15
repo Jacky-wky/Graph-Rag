@@ -1,0 +1,5 @@
+neo4j>=5.20,<6
+openai>=1.30,<2
+python-dotenv>=1.0,<2
+pymupdf>=1.24,<2
+tqdm>=4.66,<5
