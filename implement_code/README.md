@@ -88,6 +88,18 @@ python agentic_rag.py "What controls are required for customer due diligence?"
 
 The answer is grounded in retrieved chunks and uses citations such as `[policy.pdf p.4]`.
 
+## Local retrieval without an LLM API
+
+Use the layered local resolver when working with Codex or when no OpenAI API
+key is available. It first tries exact registered Terms, then conservative
+spelling-tolerant Term matching, and finally a lexical Chunk fallback with
+evidence-based Concept candidates. Read `RETRIEVAL_POLICY.md` for the complete
+confidence and matching policy.
+
+```powershell
+python local_graph_rag.py "customer due diligence 有哪些控制要求？"
+```
+
 ## Retrieval design
 
 - `search_graph` finds matching concepts/terms, expands up to two taxonomy levels, then retrieves related chunks.
