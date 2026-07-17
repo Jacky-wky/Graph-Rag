@@ -278,9 +278,15 @@ def classify_intent(question: str) -> str:
 def extract_query_keywords(question: str) -> list[str]:
     """Build deterministic lexical fallback terms from an unresolved question."""
     normalized = normalize_text(question)
-    for phrase in sorted(QUERY_STOPWORDS, key=len, reverse=True):
-        normalized = normalized.replace(phrase, " ")
-    tokens = [token for token in normalized.split() if token and token not in QUERY_STOPWORDS]
+    english_stopwords = {word for word in QUERY_STOPWORDS if re.fullmatch(r"[a-z ]+", word)}
+    chinese_stopwords = QUERY_STOPWORDS - english_stopwords
+    tokens = []
+    for token in normalized.split():
+        if token in english_stopwords:
+            continue
+        for phrase in sorted(chinese_stopwords, key=len, reverse=True):
+            token = token.replace(phrase, " ")
+        tokens.extend(part for part in token.split() if part)
     keywords = []
     for token in tokens:
         if len(token) < 2:

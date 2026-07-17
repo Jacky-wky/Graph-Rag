@@ -128,6 +128,8 @@ class Neo4jRetriever:
             {
                 "concepts": row.get("concepts", []),
                 "text": row["text"],
+                "section_id": row.get("section_id"),
+                "section_path": row.get("section_path"),
                 "citation": f"[{row.get('source_file', 'unknown source')} p.{row.get('page', '?')}]",
             }
             for row in rows
@@ -143,10 +145,11 @@ class Neo4jRetriever:
         OPTIONAL MATCH (seed)-[:HAS_SUBCONCEPT*0..2]->(related:Concept)
         WITH collect(DISTINCT seed) + collect(DISTINCT related) AS concepts
         UNWIND concepts AS concept
-        MATCH (chunk:Chunk)-[:MENTIONS_CONCEPT]->(concept)
-        WITH chunk, collect(DISTINCT concept.name) AS concepts, sum(coalesce(chunk.chunk_index, 0)) AS ordering
-        RETURN chunk.text AS text, chunk.source_file AS source_file, chunk.page AS page, concepts
-        ORDER BY size(concepts) DESC, ordering ASC
+        MATCH (chunk:Chunk)-[:MENTIONS_CONCEPT|ABOUT_CONCEPT]->(concept)
+        WITH chunk, collect(DISTINCT concept.name) AS concepts
+        RETURN chunk.text AS text, chunk.source_file AS source_file, chunk.page AS page, concepts,
+               chunk.section_id AS section_id, chunk.section_path AS section_path
+        ORDER BY size(concepts) DESC, source_file, page, chunk.chunk_index
         LIMIT $limit
         """
         return self._evidence(self._run(cypher, query=query, limit=limit))
@@ -154,7 +157,8 @@ class Neo4jRetriever:
     def search_chunks(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         cypher = """
         CALL db.index.fulltext.queryNodes('chunk_text', $query) YIELD node, score
-        OPTIONAL MATCH (node)-[:MENTIONS_CONCEPT]->(concept:Concept)
+        WHERE coalesce(node.is_table_of_contents, false) = false
+        OPTIONAL MATCH (node)-[:MENTIONS_CONCEPT|ABOUT_CONCEPT]->(concept:Concept)
         RETURN node.text AS text, node.source_file AS source_file, node.page AS page,
                collect(DISTINCT concept.name) AS concepts, score
         ORDER BY score DESC
@@ -167,8 +171,9 @@ class Neo4jRetriever:
                 raise
             fallback = """
             MATCH (chunk:Chunk)
-            WHERE toLower(chunk.text) CONTAINS toLower($query)
-            OPTIONAL MATCH (chunk)-[:MENTIONS_CONCEPT]->(concept:Concept)
+            WHERE coalesce(chunk.is_table_of_contents, false) = false
+              AND toLower(coalesce(chunk.retrieval_text, chunk.text)) CONTAINS toLower($query)
+            OPTIONAL MATCH (chunk)-[:MENTIONS_CONCEPT|ABOUT_CONCEPT]->(concept:Concept)
             RETURN chunk.text AS text, chunk.source_file AS source_file, chunk.page AS page,
                    collect(DISTINCT concept.name) AS concepts
             LIMIT $limit

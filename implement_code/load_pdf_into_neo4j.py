@@ -1,5 +1,5 @@
+import argparse
 import os
-import re
 import hashlib
 from typing import List, Dict
 
@@ -7,6 +7,8 @@ import fitz
 from tqdm import tqdm
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+
+from regulatory_chunking import chunk_document_pages
 
 
 # =========================
@@ -26,8 +28,9 @@ if not os.path.exists(ENV_PATH):
 # Chunk settings
 # =========================
 
-CHUNK_SIZE = 900
-CHUNK_OVERLAP = 120
+TARGET_TOKENS = 420
+MAX_TOKENS = 650
+OVERLAP_TOKENS = 70
 BATCH_SIZE = 100
 
 
@@ -46,55 +49,6 @@ NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 # =========================
 # PDF extraction
 # =========================
-
-def clean_text(text: str) -> str:
-    """
-    Clean extracted PDF text while preserving Chinese and English content.
-    """
-    text = text.replace("\x00", " ")
-
-    # Normalize spaces and tabs, but keep line breaks first.
-    text = re.sub(r"[ \t]+", " ", text)
-
-    # Remove too many blank lines.
-    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
-
-    # Strip each line.
-    lines = [line.strip() for line in text.splitlines()]
-    text = "\n".join(line for line in lines if line)
-
-    return text.strip()
-
-
-def split_text_by_char(
-    text: str,
-    chunk_size: int = CHUNK_SIZE,
-    overlap: int = CHUNK_OVERLAP,
-) -> List[str]:
-    """
-    Simple character-based chunking.
-    Works reasonably well for Chinese because Chinese text does not always use spaces.
-    """
-    if not text:
-        return []
-
-    chunks = []
-    start = 0
-    text_length = len(text)
-
-    while start < text_length:
-        end = start + chunk_size
-        chunk = text[start:end].strip()
-
-        if chunk:
-            chunks.append(chunk)
-
-        if end >= text_length:
-            break
-
-        start = end - overlap
-
-    return chunks
 
 
 def list_pdf_files(folder: str) -> List[str]:
@@ -117,7 +71,12 @@ def calculate_file_sha256(file_path: str) -> str:
     return digest.hexdigest()
 
 
-def extract_chunks_from_pdf(pdf_path: str) -> List[Dict]:
+def extract_chunks_from_pdf(
+    pdf_path: str,
+    target_tokens: int = TARGET_TOKENS,
+    max_tokens: int = MAX_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+) -> List[Dict]:
     source_file = os.path.basename(pdf_path)
     source_stem = os.path.splitext(source_file)[0]
     document_sha256 = calculate_file_sha256(pdf_path)
@@ -125,17 +84,21 @@ def extract_chunks_from_pdf(pdf_path: str) -> List[Dict]:
     chunks_data = []
 
     doc = fitz.open(pdf_path)
+    try:
+        page_texts = [page.get_text("text") for page in doc]
+    finally:
+        doc.close()
 
-    for page_idx in range(len(doc)):
+    document_pages = chunk_document_pages(
+        page_texts,
+        target_tokens=target_tokens,
+        max_tokens=max_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+
+    for page_idx, page_chunks in enumerate(document_pages):
         page_number = page_idx + 1
-        page = doc[page_idx]
-
-        raw_text = page.get_text("text")
-        text = clean_text(raw_text)
-
-        page_chunks = split_text_by_char(text)
-
-        for chunk_idx, chunk_text in enumerate(page_chunks, start=1):
+        for chunk_idx, chunk in enumerate(page_chunks, start=1):
             chunk_id = f"{source_stem}_p{page_number}_c{chunk_idx}"
 
             chunks_data.append(
@@ -147,33 +110,52 @@ def extract_chunks_from_pdf(pdf_path: str) -> List[Dict]:
                     "document_sha256": document_sha256,
                     "page": page_number,
                     "chunk_index": chunk_idx,
-                    "text": chunk_text,
-                    "text_length": len(chunk_text),
+                    "text": chunk.text,
+                    "retrieval_text": chunk.retrieval_text,
+                    "text_length": len(chunk.text),
+                    "estimated_tokens": chunk.estimated_tokens,
+                    "section_id": chunk.section_id,
+                    "section_title": chunk.section_title,
+                    "section_path": chunk.section_path,
+                    "is_table_of_contents": chunk.is_table_of_contents,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                    "split_part": chunk.split_part,
+                    "chunking_method": chunk.chunking_method,
                 }
             )
-
-    doc.close()
     return chunks_data
 
 
-def extract_all_chunks() -> List[Dict]:
+def extract_all_chunks(
+    pdf_folder: str = PDF_FOLDER,
+    target_tokens: int = TARGET_TOKENS,
+    max_tokens: int = MAX_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+) -> List[Dict]:
     print("Project root:", PROJECT_ROOT)
-    print("PDF folder:", PDF_FOLDER)
+    print("PDF folder:", pdf_folder)
 
-    if not os.path.exists(PDF_FOLDER):
-        raise FileNotFoundError(f"PDF folder not found: {PDF_FOLDER}")
+    if not os.path.exists(pdf_folder):
+        raise FileNotFoundError(f"PDF folder not found: {pdf_folder}")
 
-    pdf_files = list_pdf_files(PDF_FOLDER)
+    pdf_files = list_pdf_files(pdf_folder)
 
     print(f"\nFound {len(pdf_files)} PDF files.")
 
     all_chunks = []
 
     for pdf_path in tqdm(pdf_files, desc="Extracting PDFs"):
-        pdf_chunks = extract_chunks_from_pdf(pdf_path)
+        pdf_chunks = extract_chunks_from_pdf(
+            pdf_path,
+            target_tokens=target_tokens,
+            max_tokens=max_tokens,
+            overlap_tokens=overlap_tokens,
+        )
         all_chunks.extend(pdf_chunks)
 
-        print(f"{os.path.basename(pdf_path)} -> {len(pdf_chunks)} chunks")
+        toc_chunks = sum(chunk["is_table_of_contents"] for chunk in pdf_chunks)
+        print(f"{os.path.basename(pdf_path)} -> {len(pdf_chunks)} chunks ({toc_chunks} TOC)")
 
     print(f"\nTotal chunks extracted: {len(all_chunks)}")
 
@@ -205,6 +187,10 @@ def create_constraints(driver):
         FOR (p:Page)
         REQUIRE p.page_id IS UNIQUE
         """,
+        """
+        CREATE FULLTEXT INDEX chunk_text IF NOT EXISTS
+        FOR (c:Chunk) ON EACH [c.text, c.retrieval_text]
+        """,
     ]
 
     with driver.session(database=NEO4J_DATABASE) as session:
@@ -220,7 +206,7 @@ def clear_existing_data(driver):
     """
     query = """
     MATCH (n)
-    WHERE n:Document OR n:Page OR n:Chunk OR n:Module
+    WHERE n:Document OR n:Page OR n:Chunk OR n:Fact OR n:Module
     DETACH DELETE n
     """
 
@@ -248,10 +234,12 @@ def insert_batch(tx, batch):
     ON CREATE SET
         p.page_number = row.page,
         p.source_file = row.source_file,
+        p.is_table_of_contents = row.is_table_of_contents,
         p.created_at = datetime()
     ON MATCH SET
         p.page_number = row.page,
         p.source_file = row.source_file,
+        p.is_table_of_contents = row.is_table_of_contents,
         p.updated_at = datetime()
 
     MERGE (c:Chunk {chunk_id: row.chunk_id})
@@ -263,7 +251,17 @@ def insert_batch(tx, batch):
         c.page = row.page,
         c.chunk_index = row.chunk_index,
         c.text = row.text,
+        c.retrieval_text = row.retrieval_text,
         c.text_length = row.text_length,
+        c.estimated_tokens = row.estimated_tokens,
+        c.section_id = row.section_id,
+        c.section_title = row.section_title,
+        c.section_path = row.section_path,
+        c.is_table_of_contents = row.is_table_of_contents,
+        c.start_line = row.start_line,
+        c.end_line = row.end_line,
+        c.split_part = row.split_part,
+        c.chunking_method = row.chunking_method,
         c.updated_at = datetime()
 
     MERGE (d)-[:HAS_CHUNK]->(c)
@@ -351,6 +349,9 @@ def show_sample_chunk(driver):
         c.chunk_id AS chunk_id,
         c.page AS page,
         c.chunk_index AS chunk_index,
+        c.section_id AS section_id,
+        c.section_path AS section_path,
+        c.estimated_tokens AS estimated_tokens,
         p.page_id AS page_id,
         c.text AS text
     ORDER BY d.file_name, c.page, c.chunk_index
@@ -367,12 +368,71 @@ def show_sample_chunk(driver):
             print("Chunk ID:", record["chunk_id"])
             print("Page:", record["page"])
             print("Chunk index:", record["chunk_index"])
+            print("Section ID:", record["section_id"])
+            print("Section path:", record["section_path"])
+            print("Estimated tokens:", record["estimated_tokens"])
             print("Text preview:")
             print(record["text"][:1000])
             print("=" * 80)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Load regulatory PDFs into Neo4j with structure-aware chunking.")
+    parser.add_argument("--pdf-folder", default=PDF_FOLDER)
+    parser.add_argument("--target-tokens", type=int, default=TARGET_TOKENS)
+    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS)
+    parser.add_argument("--overlap-tokens", type=int, default=OVERLAP_TOKENS)
+    parser.add_argument("--reset", action="store_true", help="Delete existing Document, Page, Chunk, and Fact nodes before loading.")
+    parser.add_argument("--dry-run", action="store_true", help="Extract and report chunks without connecting to Neo4j.")
+    return parser.parse_args()
+
+
+def validate_chunk_settings(target_tokens: int, max_tokens: int, overlap_tokens: int) -> None:
+    if target_tokens <= 0 or max_tokens <= 0:
+        raise ValueError("Token budgets must be positive.")
+    if target_tokens > max_tokens:
+        raise ValueError("--target-tokens must be less than or equal to --max-tokens.")
+    if overlap_tokens < 0 or overlap_tokens >= max_tokens:
+        raise ValueError("--overlap-tokens must be non-negative and smaller than --max-tokens.")
+
+
+def report_chunk_statistics(chunks: List[Dict]) -> None:
+    token_counts = sorted(chunk["estimated_tokens"] for chunk in chunks)
+    if not token_counts:
+        print("No chunks extracted.")
+        return
+    percentile_index = min(len(token_counts) - 1, int(len(token_counts) * 0.95))
+    print("\nChunk statistics:")
+    print("Total:", len(chunks))
+    print("TOC chunks:", sum(chunk["is_table_of_contents"] for chunk in chunks))
+    print("With section ID:", sum(bool(chunk["section_id"]) for chunk in chunks))
+    print("Average estimated tokens:", round(sum(token_counts) / len(token_counts), 1))
+    print("Median estimated tokens:", token_counts[len(token_counts) // 2])
+    print("95th percentile estimated tokens:", token_counts[percentile_index])
+    print("Maximum estimated tokens:", token_counts[-1])
+
+
+def count_existing_chunks(driver) -> int:
+    with driver.session(database=NEO4J_DATABASE) as session:
+        return session.run("MATCH (c:Chunk) RETURN count(c) AS count").single()["count"]
+
+
 def main():
+    args = parse_args()
+    validate_chunk_settings(args.target_tokens, args.max_tokens, args.overlap_tokens)
+
+    chunks = extract_all_chunks(
+        pdf_folder=args.pdf_folder,
+        target_tokens=args.target_tokens,
+        max_tokens=args.max_tokens,
+        overlap_tokens=args.overlap_tokens,
+    )
+    report_chunk_statistics(chunks)
+
+    if args.dry_run:
+        print("\nDry run complete. Neo4j was not modified.")
+        return
+
     print("Connecting to Neo4j...")
     print("NEO4J_URI:", NEO4J_URI)
     print("NEO4J_DATABASE:", NEO4J_DATABASE)
@@ -388,13 +448,16 @@ def main():
     try:
         create_constraints(driver)
 
-        RESET_DATABASE = True
+        existing_chunks = count_existing_chunks(driver)
+        if existing_chunks and not args.reset:
+            raise RuntimeError(
+                f"Neo4j already contains {existing_chunks} Chunk nodes. "
+                "Use --reset to replace them with the new chunking model."
+            )
 
-        if RESET_DATABASE:
+        if args.reset:
             print("Clearing existing project data...")
             clear_existing_data(driver)
-
-        chunks = extract_all_chunks()
 
         print("\nLoading chunks into Neo4j...")
         insert_chunks(driver, chunks)

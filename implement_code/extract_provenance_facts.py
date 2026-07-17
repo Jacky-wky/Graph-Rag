@@ -69,6 +69,7 @@ class ProvenanceFactExtractor:
         with self.session() as session:
             query = """
             MATCH (concept:Concept)
+            WHERE concept.level = 2
             RETURN concept.concept_id AS concept_id, concept.name AS name,
                    concept.description AS description
             ORDER BY concept.concept_id
@@ -78,7 +79,7 @@ class ProvenanceFactExtractor:
     def fetch_chunks(self, limit: int) -> list[dict[str, Any]]:
         with self.session() as session:
             query = """
-            MATCH (chunk:Chunk)-[:MENTIONS_CONCEPT]->(concept:Concept)
+            MATCH (chunk:Chunk)-[:MENTIONS_CONCEPT|ABOUT_CONCEPT]->(concept:Concept)
             WHERE NOT EXISTS {
                 MATCH (chunk)-[:SUPPORTS]->(:Fact)
             }

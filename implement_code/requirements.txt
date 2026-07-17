@@ -3,3 +3,7 @@ openai>=1.30,<2
 python-dotenv>=1.0,<2
 pymupdf>=1.24,<2
 tqdm>=4.66,<5
+jieba>=0.42.1,<1
+numpy>=1.26,<3
+scikit-learn>=1.4,<2
+sentence-transformers>=3,<6
