@@ -95,13 +95,6 @@ for resolver thresholds and ranking policy.
 | --- | --- |
 | `implement_code/` | Current provenance-first Neo4j Graph RAG implementation |
 | `dataset/datasets/` | Nine PDFs loaded by the current ingestion pipeline |
-| `dataset/` | Retrieval test sets, workbooks, and earlier experiments |
-| `evaluation/` | Model and hybrid-retrieval evaluation notebooks/results |
-| `document/` | Project reports, presentations, and design records |
-| `code/` | Legacy RAG experiments retained for research history |
-| `test_copilot.xlsx` | External assistant comparison results |
-| `test_perplex_ai.xlsx` | External assistant comparison results |
-| `video.mp4` | Project demonstration artifact |
 
 Downloaded models, Python environments, caches, Chroma/Neo4j runtime data, and
 generated chunk-review files are intentionally excluded because they are large
@@ -232,9 +225,9 @@ LIMIT 1;
 
 - Real `.env` files, credentials, downloaded models, virtual environments, and
   generated databases are ignored by Git.
-- Legacy scripts read `HF_TOKEN` from the environment instead of embedding
-  credentials in source files.
-- Source PDFs, evaluation artifacts, reports, current code, and methodology are
-  committed so the graph can be rebuilt from source.
+- Hugging Face libraries can read the optional `HF_TOKEN` from the environment;
+  credentials are never embedded in source files.
+- Only the current implementation, its methodology, and the nine source PDFs
+  are committed so the graph can be rebuilt from source.
 - Before redistributing a fork, verify the applicable terms for the included
   regulatory PDFs and third-party model artifacts.
