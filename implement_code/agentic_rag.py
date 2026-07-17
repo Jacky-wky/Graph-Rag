@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from neo4j import GraphDatabase
@@ -93,7 +94,7 @@ class Settings:
     @classmethod
     def from_environment(cls) -> "Settings":
         if load_dotenv:
-            load_dotenv()
+            load_dotenv(Path(__file__).resolve().with_name(".env"))
         password = os.getenv("NEO4J_PASSWORD")
         if not password:
             raise ValueError("Set NEO4J_PASSWORD in .env or the environment.")

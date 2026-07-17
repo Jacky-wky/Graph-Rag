@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from neo4j import GraphDatabase
@@ -308,7 +309,7 @@ def main() -> None:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     if load_dotenv:
-        load_dotenv(".env")
+        load_dotenv(Path(__file__).resolve().with_name(".env"))
     parser = argparse.ArgumentParser(description="Retrieve Neo4j evidence without an LLM API.")
     parser.add_argument("question", nargs="+", help="Question to resolve and retrieve")
     parser.add_argument("--chunk-limit", type=int, default=8)

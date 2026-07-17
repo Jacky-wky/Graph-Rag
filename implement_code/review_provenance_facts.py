@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from pathlib import Path
 
 from neo4j import GraphDatabase
 
@@ -63,7 +64,7 @@ class FactReviewer:
 
 def main() -> None:
     if load_dotenv:
-        load_dotenv()
+        load_dotenv(Path(__file__).resolve().with_name(".env"))
     parser = argparse.ArgumentParser(description="Review evidence-backed Neo4j facts.")
     parser.add_argument("command", choices=["list", "approve", "reject"])
     parser.add_argument("fact_id", nargs="?")

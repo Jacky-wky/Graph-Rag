@@ -12,6 +12,7 @@ import json
 import os
 from itertools import combinations
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from neo4j import GraphDatabase
@@ -221,7 +222,7 @@ Source chunk:
 
 def main() -> None:
     if load_dotenv:
-        load_dotenv()
+        load_dotenv(Path(__file__).resolve().with_name(".env"))
     parser = argparse.ArgumentParser(description="Extract evidence-backed candidate facts into Neo4j.")
     parser.add_argument("--uri", default=os.getenv("NEO4J_URI", "bolt://localhost:7687"))
     parser.add_argument("--user", default=os.getenv("NEO4J_USER", os.getenv("NEO4J_USERNAME", "neo4j")))

@@ -1,0 +1,48 @@
+# Secrets and local configuration
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+*.key
+*.pem
+credentials*.json
+secrets*.json
+
+# Python environments and caches
+/.venv/
+/venv/
+/env/
+/industrial/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Downloaded models and generated databases
+/models/
+/db/
+/temp/
+*.gguf
+*.sqlite3
+
+# Generated Graph RAG artifacts
+/implement_code/.cache/
+/implement_code/chunk_review/
+/implement_code/auto_concepts_preview.json
+
+# Neo4j local runtime data
+/neo4j/data/
+/neo4j/logs/
+/data/databases/
+/data/transactions/
+
+# Editors, operating systems, and Office locks
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*
